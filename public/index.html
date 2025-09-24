@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ChatApp</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="auth-section">
+    <h2>Login</h2>
+    <input type="text" id="login-username" placeholder="Username">
+    <input type="password" id="login-password" placeholder="Password">
+    <button id="login-btn">Login</button>
+    <p>or</p>
+    <h2>Register</h2>
+    <input type="text" id="register-username" placeholder="Username">
+    <input type="password" id="register-password" placeholder="Password">
+    <input type="email" id="register-email" placeholder="Email">
+    <button id="register-btn">Register</button>
+    <div id="auth-message"></div>
+  </div>
+  <div id="chat-section" style="display:none;">
+    <div id="sidebar">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+        <button id="logout-btn">Logout</button>
+        <span id="current-user-info" style="font-weight:bold;"></span>
+      </div>
+  <h3>Conversations</h3>
+  <input type="text" id="user-search" placeholder="Search user by name/email">
+  <ul id="conversation-list"></ul>
+  <h4>Create Group</h4>
+  <input type="text" id="group-name" placeholder="Group Name">
+  <input type="text" id="group-user-search" placeholder="Search user by name/email">
+  <ul id="group-user-results"></ul>
+  <div id="group-selected-users"></div>
+  <button id="create-group-btn">Create Group</button>
+    </div>
+    <div id="chat-main">
+  <div id="chat-header"></div>
+  <div id="group-online-users" style="margin-bottom:6px;font-size:0.95em;color:#2a7;display:none;"></div>
+  <div id="group-typing-users" style="margin-bottom:6px;font-size:0.95em;color:#888;display:none;"></div>
+  <div id="messages"></div>
+  <div id="typing-indicator" style="color:#888;font-style:italic;height:20px;"></div>
+  <input type="text" id="message-input" placeholder="Type a message...">
+  <button id="send-btn">Send</button>
+    </div>
+  </div>
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <script src="app.js"></script>
+  <script>
+    function connectSocket() {
+      socket = io({
+        auth: { token: `Bearer ${token}` }
+      });
+      socket.on("connect", () => {
+        // ...
+      });
+      socket.on("message:receive", (msg) => {
+        if (msg.conversationId === currentConversation) addMessage(msg);
+      });
+
+      // Add these handlers here:
+      socket.on("message:updated", (msg) => {
+        const el = document.querySelector(`[data-id='${msg._id}'] .msg-text`);
+        if (el) el.textContent = msg.content.text + " (edited)";
+      });
+
+      socket.on("message:deleted", ({ messageId }) => {
+        const el = document.querySelector(`[data-id='${messageId}']`);
+        if (el) el.remove();
+      });
+    }
+
+    function addMessage(msg) {
+      const messagesDiv = document.getElementById("messages");
+      const div = document.createElement("div");
+      const userId = getUserId();
+      div.innerHTML = `<b>${msg.senderId === userId ? 'Me' : msg.senderId}:</b> <span class="msg-text">${msg.content.text}</span>`;
+      // Add edit/delete buttons for own messages
+      if (msg.senderId === userId) {
+        const editBtn = document.createElement("button");
+        editBtn.textContent = "Edit";
+        editBtn.style.marginLeft = "8px";
+        editBtn.onclick = () => {
+          const newText = prompt("Edit your message:", msg.content.text);
+          if (newText && newText !== msg.content.text) {
+            socket.emit("message:update", { messageId: msg._id, newContent: newText });
+          }
+        };
+        const delBtn = document.createElement("button");
+        delBtn.textContent = "Delete";
+        delBtn.style.marginLeft = "4px";
+        delBtn.onclick = () => {
+          if (confirm("Delete this message?")) {
+            socket.emit("message:delete", { messageId: msg._id });
+          }
+        };
+        div.appendChild(editBtn);
+        div.appendChild(delBtn);
+      }
+      div.setAttribute("data-id", msg._id);
+      messagesDiv.appendChild(div);
+    }
+  </script>
+</body>
+</html>
