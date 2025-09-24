@@ -1,3 +1,68 @@
+/* Auth UI Modernization */
+.auth-card {
+  max-width: 350px;
+  margin: 30px auto 10px auto;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px #0001;
+  padding: 24px 28px 18px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.btn-primary {
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  font-weight: bold;
+  cursor: pointer;
+  padding: 10px 0;
+  border-radius: 4px;
+  margin-top: 8px;
+  transition: background 0.2s;
+}
+.btn-primary:hover {
+  background: #1d4ed8;
+}
+.switch-auth {
+  text-align: center;
+  font-size: 14px;
+  margin-top: 8px;
+}
+.switch-auth a {
+  color: #2563eb;
+  text-decoration: underline;
+  cursor: pointer;
+}
+#update-user-btn {
+  background: #fbbf24;
+  color: #222;
+  border: none;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-weight: bold;
+  cursor: pointer;
+}
+#delete-user-btn {
+  background: #e53e3e;
+  color: #fff;
+  border: none;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-weight: bold;
+  cursor: pointer;
+}
+#delete-user-btn:hover {
+  background: #b91c1c;
+}
+#current-user-info {
+  font-weight: bold;
+}
 /* Layout */
 body {
   font-family: Arial, sans-serif;

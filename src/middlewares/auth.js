@@ -1,7 +1,7 @@
 import { verifyJwt } from "../utils/jwt.js";
 import User from "../models/user.model.js";
 
-export async function authenticate(req, res, next) {
+async function authenticate(req, res, next) {
   const token = req.headers.authorization?.split(" ")[1];
   if (!token) return res.status(401).json({ status: false, message: "No token" });
 
@@ -14,3 +14,4 @@ export async function authenticate(req, res, next) {
   req.user = user;
   next();
 }
+export default authenticate;

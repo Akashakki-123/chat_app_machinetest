@@ -1,3 +1,33 @@
+
+// Update user (username, email, password)
+export async function updateUser(req, res) {
+  try {
+    const userId = req.user?._id || req.user?.id;
+    if (!userId) return res.status(401).json({ status: false, message: "Unauthorized" });
+    const { userName, email, password } = req.body;
+    const update = {};
+    if (userName) update.userName = userName;
+    if (email) update.email = email;
+    if (password) update.password = encryptPassword(password);
+    const user = await User.findByIdAndUpdate(userId, update, { new: true });
+    if (!user) return res.status(404).json({ status: false, message: "User not found" });
+    res.json({ status: true, message: "User updated", data: { userName: user.userName, email: user.email } });
+  } catch (e) {
+    res.status(500).json({ status: false, message: e.message });
+  }
+}
+
+// Delete user
+export async function deleteUser(req, res) {
+  try {
+    const userId = req.user?._id || req.user?.id;
+    if (!userId) return res.status(401).json({ status: false, message: "Unauthorized" });
+    await User.findByIdAndDelete(userId);
+    res.json({ status: true, message: "User deleted" });
+  } catch (e) {
+    res.status(500).json({ status: false, message: e.message });
+  }
+}
 import User from "../models/user.model.js";
 import { encryptPassword, verifyPassword } from "../utils/encrypt.js";
 import { signJwt } from "../utils/jwt.js";

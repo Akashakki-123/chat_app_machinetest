@@ -1,3 +1,68 @@
+// --- Auth UI toggle and user update/delete ---
+window.addEventListener('DOMContentLoaded', function () {
+  // Auth form toggle
+  const showRegister = document.getElementById('show-register');
+  const showLogin = document.getElementById('show-login');
+  const authSection = document.getElementById('auth-section');
+  const registerCard = document.getElementById('register-card');
+  if (showRegister && showLogin && registerCard) {
+    showRegister.onclick = (e) => {
+      e.preventDefault();
+      authSection.querySelector('.auth-card').style.display = 'none';
+      registerCard.style.display = '';
+    };
+    showLogin.onclick = (e) => {
+      e.preventDefault();
+      registerCard.style.display = 'none';
+      authSection.querySelector('.auth-card').style.display = '';
+    };
+  }
+
+  // User update/delete stubs
+  const updateBtn = document.getElementById('update-user-btn');
+  const deleteBtn = document.getElementById('delete-user-btn');
+  if (updateBtn) {
+    updateBtn.onclick = async function () {
+      const userName = prompt('Enter new username (leave blank to keep unchanged):');
+      const email = prompt('Enter new email (leave blank to keep unchanged):');
+      const password = prompt('Enter new password (leave blank to keep unchanged):');
+      if (!userName && !email && !password) return alert('Nothing to update.');
+      const token = localStorage.getItem('token');
+      const res = await fetch('/api/auth/update', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ userName, email, password })
+      });
+      const data = await res.json();
+      if (data.status) {
+        alert('User updated! Please log in again.');
+        localStorage.removeItem('token');
+        location.reload();
+      } else {
+        alert(data.message || 'Update failed');
+      }
+    };
+  }
+  if (deleteBtn) {
+    deleteBtn.onclick = async function () {
+      if (confirm('Are you sure you want to delete your account? This cannot be undone.')) {
+        const token = localStorage.getItem('token');
+        const res = await fetch('/api/auth/delete', {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (data.status) {
+          alert('Account deleted.');
+          localStorage.removeItem('token');
+          location.reload();
+        } else {
+          alert(data.message || 'Delete failed');
+        }
+      }
+    };
+  }
+});
 // --- Image Upload Integration ---
 window.addEventListener('DOMContentLoaded', function () {
   const imageBtn = document.getElementById('image-btn');
@@ -33,6 +98,17 @@ function showGroupOnlineUsers(participantIds) {
   const onlineDiv = document.getElementById("group-online-users");
   if (!allUsers.length) return;
 
+  // All users who are online (not just in this group)
+  const allOnlineUserIds = Object.keys(onlineUsers);
+  const allOnlineNames = allOnlineUserIds.map(id => {
+    const u = onlineUsers[id];
+    if (u?.userName) return u.userName;
+    if (u?.email) return u.email;
+    const userObj = allUsers.find(u => u._id === id);
+    return userObj ? userObj.userName : id;
+  });
+
+  // For this group, show which are online
   const online = participantIds.filter(id => onlineUsers[id]?.onlineStatus);
   const onlineNames = online.map(id => {
     const u = onlineUsers[id];
@@ -42,13 +118,15 @@ function showGroupOnlineUsers(participantIds) {
     return userObj ? userObj.userName : id;
   });
 
+  let html = '';
   if (online.length > 0) {
-    onlineDiv.innerText = `Online: ${onlineNames.join(", ")}`;
-    onlineDiv.style.display = "block";
+    html += `Online in this group: <b>${onlineNames.join(", ")}</b><br>`;
   } else {
-    onlineDiv.innerText = "No one online in this group.";
-    onlineDiv.style.display = "block";
+    html += 'No one online in this group.<br>';
   }
+  html += `Total users online: <b>${allOnlineNames.length}</b> (${allOnlineNames.join(", ")})`;
+  onlineDiv.innerHTML = html;
+  onlineDiv.style.display = "block";
 }
 
 function showIndividualOnlineStatus(participantIds) {
@@ -56,27 +134,40 @@ function showIndividualOnlineStatus(participantIds) {
   if (!allUsers.length) return;
 
   const otherId = participantIds.find(id => id !== getUserId());
-  // Debug log to trace status
-  console.log('showIndividualOnlineStatus:', {otherId, onlineUsers, allUsers, otherUser: onlineUsers[otherId] || allUsers.find(u => u._id === otherId)});
-  const otherUser = onlineUsers[otherId] || allUsers.find(u => u._id === otherId);
-  let name = otherId;
-  if (otherUser && typeof otherUser === 'object') {
-    if (typeof otherUser.userName === 'string' && otherUser.userName) {
-      name = otherUser.userName;
-    } else if (typeof otherUser.email === 'string' && otherUser.email) {
-      name = otherUser.email;
-    } else {
-      // If object but no string property, fallback to id
-      name = otherId;
+  let name = '';
+  let statusText = '';
+  if (otherId) {
+    const otherUser = onlineUsers[otherId] || allUsers.find(u => u._id === otherId);
+    if (otherUser && typeof otherUser === 'object') {
+      if (typeof otherUser.userName === 'string' && otherUser.userName) {
+        name = otherUser.userName;
+      } else if (typeof otherUser.email === 'string' && otherUser.email) {
+        name = otherUser.email;
+      } else {
+        name = '';
+      }
+    } else if (typeof otherUser === 'string') {
+      name = otherUser;
     }
-  } else if (typeof otherUser === 'string') {
-    name = otherUser;
+    statusText = (otherUser && otherUser.onlineStatus === true)
+      ? "<span style='color:green;font-weight:bold'>Online</span>"
+      : "<span style='color:red;font-weight:bold'>Offline</span>";
   }
-  // More robust online check: true (boolean) only
-  let statusText = (otherUser && otherUser.onlineStatus === true)
-    ? "Online"
-    : `Last seen: ${otherUser && otherUser.lastSeen ? new Date(otherUser.lastSeen).toLocaleString() : "Offline"}`;
-  onlineDiv.innerText = `${name}: ${statusText}`;
+  // All users who are online
+  const allOnlineUserIds = Object.keys(onlineUsers);
+  const allOnlineNames = allOnlineUserIds.map(id => {
+    const u = onlineUsers[id];
+    if (u?.userName) return u.userName;
+    if (u?.email) return u.email;
+    const userObj = allUsers.find(u => u._id === id);
+    return userObj ? userObj.userName : id;
+  });
+  let html = '';
+  if (name) {
+    html += `${name}: ${statusText}<br>`;
+  }
+  html += `Total users online: <b>${allOnlineNames.length}</b> (${allOnlineNames.join(", ")})`;
+  onlineDiv.innerHTML = html;
   onlineDiv.style.display = "block";
 }
 

@@ -1,8 +1,9 @@
 
 
+
 import { Router } from "express";
 import { createGroup, addMember, removeMember, getUserConversations, createIndividualConversation, deleteGroup } from "../controllers/conversation.controller.js";
-import { authenticate } from "../middlewares/auth.js";
+import authenticate from "../middlewares/auth.js";
 
 const router = Router();
 
