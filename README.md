@@ -3,12 +3,14 @@
 A real-time chat application built with Node.js, Express, MongoDB, and Socket.io.
 
 ## Features
-- User authentication (JWT)
-- Individual and group conversations
-- Real-time messaging with Socket.io
+- User authentication (JWT) (login,signup,update ,delete)
+- Individual and group conversations.
+-group add more members-remove members -delete group
+- Real-time messaging with Socket.io(also images)
 - Message editing, deletion, and read receipts
 - User online/offline status
 - Group management (add/remove members)
+- Typing start-stop Tracking
 
 ## Getting Started
 
@@ -33,7 +35,7 @@ BCRYPT_SALT_ROUNDS=10
 
 ### Running the App
 ```bash
-npm start
+npm run dev
 ```
 
 The server will run at `http://localhost:4000` by default.
