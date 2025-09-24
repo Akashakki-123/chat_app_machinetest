@@ -1,15 +1,47 @@
+// --- Image Upload Integration ---
+window.addEventListener('DOMContentLoaded', function () {
+  const imageBtn = document.getElementById('image-btn');
+  const imageInput = document.getElementById('image-input');
+  if (imageBtn && imageInput) {
+    imageBtn.addEventListener('click', () => imageInput.click());
+    imageInput.addEventListener('change', function () {
+      const file = imageInput.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        if (!window.currentConversation && typeof currentConversation === 'undefined') return;
+        const convId = window.currentConversation || currentConversation;
+        socket.emit('message:send', {
+          conversationId: convId,
+          type: 'image',
+          content: { media: { url: e.target.result, fileName: file.name } }
+        });
+      };
+      reader.readAsDataURL(file);
+      imageInput.value = '';
+    });
+  }
+});
+
+// DOM elements (must be at the very top to avoid ReferenceError)
+
 // --- Online/typing state ---
 let allUsers = [];
-let onlineUsers = {};
+let onlineUsers = {}; // userId -> { userName, email, onlineStatus, lastSeen }
 
 function showGroupOnlineUsers(participantIds) {
   const onlineDiv = document.getElementById("group-online-users");
   if (!allUsers.length) return;
-  const online = participantIds.filter(id => onlineUsers[id]);
+
+  const online = participantIds.filter(id => onlineUsers[id]?.onlineStatus);
   const onlineNames = online.map(id => {
-    const u = allUsers.find(u => u._id === id);
-    return u ? u.userName : id;
+    const u = onlineUsers[id];
+    if (u?.userName) return u.userName;
+    if (u?.email) return u.email;
+    const userObj = allUsers.find(u => u._id === id);
+    return userObj ? userObj.userName : id;
   });
+
   if (online.length > 0) {
     onlineDiv.innerText = `Online: ${onlineNames.join(", ")}`;
     onlineDiv.style.display = "block";
@@ -22,12 +54,32 @@ function showGroupOnlineUsers(participantIds) {
 function showIndividualOnlineStatus(participantIds) {
   const onlineDiv = document.getElementById("group-online-users");
   if (!allUsers.length) return;
+
   const otherId = participantIds.find(id => id !== getUserId());
-  const isOnline = !!onlineUsers[otherId];
-  const otherUser = allUsers.find(u => u._id === otherId);
-  onlineDiv.innerText = `${otherUser ? otherUser.userName : otherId}: ${isOnline ? "Online" : "Offline"}`;
+  // Debug log to trace status
+  console.log('showIndividualOnlineStatus:', {otherId, onlineUsers, allUsers, otherUser: onlineUsers[otherId] || allUsers.find(u => u._id === otherId)});
+  const otherUser = onlineUsers[otherId] || allUsers.find(u => u._id === otherId);
+  let name = otherId;
+  if (otherUser && typeof otherUser === 'object') {
+    if (typeof otherUser.userName === 'string' && otherUser.userName) {
+      name = otherUser.userName;
+    } else if (typeof otherUser.email === 'string' && otherUser.email) {
+      name = otherUser.email;
+    } else {
+      // If object but no string property, fallback to id
+      name = otherId;
+    }
+  } else if (typeof otherUser === 'string') {
+    name = otherUser;
+  }
+  // More robust online check: true (boolean) only
+  let statusText = (otherUser && otherUser.onlineStatus === true)
+    ? "Online"
+    : `Last seen: ${otherUser && otherUser.lastSeen ? new Date(otherUser.lastSeen).toLocaleString() : "Offline"}`;
+  onlineDiv.innerText = `${name}: ${statusText}`;
   onlineDiv.style.display = "block";
 }
+
 const API_URL = "/api";
 let token = null;
 let socket = null;
@@ -130,44 +182,56 @@ function connectSocket() {
   socket = io({
     auth: { token: `Bearer ${token}` }
   });
+
   socket.on("connect", async () => {
     // Fetch all users for name lookup
     const res = await fetch(`${API_URL}/users`, { headers: { Authorization: `Bearer ${token}` } });
     const data = await res.json();
     if (data.status) allUsers = data.data;
   });
+
   socket.on("message:receive", (msg) => {
     if (msg.conversationId === currentConversation) addMessage(msg);
   });
+
   socket.on("message:updated", (msg) => {
     const el = document.querySelector(`[data-id='${msg._id}'] .msg-text`);
     if (el) el.textContent = msg.content.text + " (edited)";
   });
+
   socket.on("message:deleted", ({ messageId }) => {
     const el = document.querySelector(`[data-id='${messageId}']`);
     if (el) el.remove();
   });
-  // Typing indicator
-  socket.on("typing:update", ({ userId, isTyping }) => {
+
+  // ✅ Typing indicator with user name
+  socket.on("typing:update", ({ userId, isTyping, userName, email }) => {
+    console.log('[FRONTEND] typing:update event:', { userId, isTyping, userName, email });
+    const myId = getUserId();
     const typingDiv = document.getElementById("typing-indicator");
-    if (isTyping && userId !== getUserId()) {
-      const user = allUsers.find(u => u._id === userId);
-      typingDiv.innerText = `${user ? user.userName : userId} is typing...`;
-    } else {
+    let name = userName || email || (allUsers.find(u => u._id === userId)?.userName) || userId;
+    if (typeof isTyping === 'undefined') {
+      console.error('[FRONTEND] typing:update event missing isTyping:', { userId, userName, email });
+      return;
+    }
+    if (isTyping && userId !== myId) {
+      typingDiv.innerText = `${name} typing...`;
+      typingDiv.style.display = "block";
+    } else if (!isTyping && userId !== myId) {
       typingDiv.innerText = "";
+      typingDiv.style.display = "none";
     }
   });
-  // Online status
-  socket.on("user:status", ({ userId, status }) => {
-    if (status === "online") {
-      onlineUsers[userId] = true;
+
+  // ✅ Online status updates
+  socket.on("user:status", ({ userId, onlineStatus, userName, email, lastSeen }) => {
+    if (onlineStatus) {
+      onlineUsers[userId] = { userName, email, onlineStatus, lastSeen };
     } else {
       delete onlineUsers[userId];
     }
-    // Update online users display if in a chat
-    const onlineDiv = document.getElementById("group-online-users");
-    if (onlineDiv && currentConversation) {
-      // Find current convo type/participants
+
+    if (currentConversation) {
       fetch(`${API_URL}/conversations`, { headers: { Authorization: `Bearer ${token}` } })
         .then(res => res.json())
         .then(convoData => {
@@ -184,7 +248,9 @@ function connectSocket() {
   });
 }
 
+
 // ----------------- CONVERSATIONS -----------------
+// Move these to the top so they're available before any function uses them
 const conversationList = document.getElementById("conversation-list");
 const userSearch = document.getElementById("user-search");
 
@@ -242,7 +308,7 @@ async function loadConversations() {
 function getUserId() {
   if (!token) return null;
   const payload = JSON.parse(atob(token.split('.')[1]));
-  return payload.id;
+  return payload.id || payload._id; // ✅ safer
 }
 
 async function selectConversation(conversationId, displayName) {
@@ -251,23 +317,132 @@ async function selectConversation(conversationId, displayName) {
   document.getElementById("messages").innerHTML = "";
   document.getElementById("group-online-users").style.display = "none";
   socket.emit("room:join", conversationId);
+
   // Load message history
   const res = await fetch(`${API_URL}/messages/conversation/${conversationId}`, { headers: { Authorization: `Bearer ${token}` } });
   const data = await res.json();
   if (data.status) {
     data.data.forEach(addMessage);
   }
-  // Get conversation details to check type and participants
+
+  // Get conversation details
   const convoRes = await fetch(`${API_URL}/conversations`, { headers: { Authorization: `Bearer ${token}` } });
   const convoData = await convoRes.json();
   if (convoData.status) {
     const convo = convoData.data.find(c => c._id === conversationId);
     if (convo && convo.type === "group") {
       showGroupOnlineUsers(convo.participants);
+
+      // --- Group management UI ---
+      renderGroupManagement(convo);
     } else if (convo && convo.type === "individual") {
       showIndividualOnlineStatus(convo.participants);
+      document.getElementById("group-management-ui")?.remove();
     }
   }
+}
+
+// Group management UI rendering
+function renderGroupManagement(convo) {
+  // Remove old UI if exists
+  document.getElementById("group-management-ui")?.remove();
+  const chatHeader = document.getElementById("chat-header");
+  const groupDiv = document.createElement("div");
+  groupDiv.id = "group-management-ui";
+  groupDiv.style.margin = "10px 0";
+  // Members list
+  const membersTitle = document.createElement("div");
+  membersTitle.innerText = "Group Members:";
+  membersTitle.style.fontWeight = "bold";
+  groupDiv.appendChild(membersTitle);
+  const membersList = document.createElement("ul");
+  membersList.style.listStyle = "none";
+  membersList.style.padding = "0";
+  convo.participants.forEach(member => {
+    const user = allUsers.find(u => u._id === (member._id || member));
+    const li = document.createElement("li");
+    li.style.marginBottom = "4px";
+    li.innerText = user ? (user.userName || user.email || user._id) : member._id || member;
+    // Remove button (if admin and not self)
+    const isAdmin = convo.groupInfo.admins.some(a => a.toString() === getUserId());
+    if (isAdmin && (user?._id || member) !== getUserId()) {
+      const removeBtn = document.createElement("button");
+      removeBtn.innerText = "Remove";
+      removeBtn.style.marginLeft = "8px";
+      removeBtn.onclick = async () => {
+        if (confirm("Remove this member?")) {
+          await fetch(`${API_URL}/conversations/group/remove`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ conversationId: convo._id, userId: user?._id || member })
+          });
+          selectConversation(convo._id, `[Group] ${convo.groupInfo.name}`);
+        }
+      };
+      li.appendChild(removeBtn);
+    }
+    membersList.appendChild(li);
+  });
+  groupDiv.appendChild(membersList);
+
+  // Add member UI (if admin)
+  const isAdmin = convo.groupInfo.admins.some(a => a.toString() === getUserId());
+  if (isAdmin) {
+    const addDiv = document.createElement("div");
+    addDiv.style.marginTop = "8px";
+    const addInput = document.createElement("input");
+    addInput.placeholder = "Add member by name/email...";
+    addInput.style.marginRight = "6px";
+    addDiv.appendChild(addInput);
+    const addBtn = document.createElement("button");
+    addBtn.innerText = "Add";
+    addBtn.onclick = async () => {
+      const q = addInput.value.trim().toLowerCase();
+      if (!q) return;
+      const user = allUsers.find(u =>
+        (u.userName && u.userName.toLowerCase() === q) ||
+        (u.email && u.email.toLowerCase() === q)
+      );
+      if (!user) return alert("User not found");
+      await fetch(`${API_URL}/conversations/group/add`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ conversationId: convo._id, userId: user._id })
+      });
+      selectConversation(convo._id, `[Group] ${convo.groupInfo.name}`);
+    };
+    addDiv.appendChild(addBtn);
+    groupDiv.appendChild(addDiv);
+  }
+
+  // Delete group button (if owner or admin)
+  if (
+    convo.groupInfo.owner?.toString() === getUserId() ||
+    convo.groupInfo.admins.some(a => a.toString() === getUserId())
+  ) {
+    const delBtn = document.createElement("button");
+    delBtn.innerText = "Delete Group";
+    delBtn.style.marginLeft = "16px";
+    delBtn.style.background = "#e11d48";
+    delBtn.style.color = "#fff";
+    delBtn.onclick = async () => {
+      if (confirm("Are you sure you want to delete this group?")) {
+        await fetch(`${API_URL}/conversations/group/delete`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ conversationId: convo._id })
+        });
+        loadConversations();
+        document.getElementById("chat-header").innerText = "";
+        document.getElementById("messages").innerHTML = "";
+        document.getElementById("group-management-ui")?.remove();
+        document.getElementById("group-online-users").style.display = "none";
+      }
+    };
+    groupDiv.appendChild(delBtn);
+  }
+
+  chatHeader.appendChild(groupDiv);
 }
 
 // ----------------- SEND MESSAGE -----------------
@@ -292,48 +467,138 @@ messageInput.addEventListener("input", () => {
   }, 1000);
 });
 
+// function addMessage(msg) {
+//   const messagesDiv = document.getElementById("messages");
+//   const userId = getUserId();
+//   const isMe = msg.senderId === userId;
+
+//   let senderName = "";
+//   if (msg.sender && msg.sender.userName) {
+//     senderName = msg.sender.userName;
+//   } else if (isMe) {
+//     senderName = "Me";
+//   } else {
+//     senderName = msg.senderId;
+//   }
+
+//   const div = document.createElement("div");
+//   div.className = `chat-message ${isMe ? "me" : "other"}`;
+//   div.innerHTML = `<b>${senderName}:</b> <span class="msg-text">${msg.content.text}</span>`;
+//   div.style.textAlign = isMe ? "left" : "right";
+
+//   if (isMe) {
+//     const editBtn = document.createElement("button");
+//     editBtn.textContent = "Edit";
+//     editBtn.style.marginLeft = "8px";
+//     editBtn.onclick = () => {
+//       const newText = prompt("Edit your message:", msg.content.text);
+//       if (newText && newText !== msg.content.text) {
+//         socket.emit("message:update", { messageId: msg._id, newContent: newText });
+//       }
+//     };
+
+//     const delBtn = document.createElement("button");
+//     delBtn.textContent = "Delete";
+//     delBtn.style.marginLeft = "4px";
+//     delBtn.onclick = () => {
+//       if (confirm("Delete this message?")) {
+//         socket.emit("message:delete", { messageId: msg._id });
+//       }
+//     };
+
+//     div.appendChild(editBtn);
+//     div.appendChild(delBtn);
+//   }
+
+//   div.setAttribute("data-id", msg._id);
+//   messagesDiv.appendChild(div);
+// }
+
+// ----------------- GROUP CREATION -----------------
+
 function addMessage(msg) {
   const messagesDiv = document.getElementById("messages");
   const userId = getUserId();
-    const isMe = msg.senderId === userId;
-  let senderName = "";
-  if (msg.sender && msg.sender.userName) {
-    senderName = msg.sender.userName;
-  } else if (isMe) {
+  const isMe = msg.senderId === userId;
+
+  // sender name
+  let senderName;
+  if (isMe) {
     senderName = "Me";
+  } else if (msg.sender && (msg.sender.userName || msg.sender.email)) {
+    senderName = msg.sender.userName || msg.sender.email;
+  } else if (msg.senderId) {
+    // Try to find user in allUsers by senderId
+    const userObj = Array.isArray(allUsers) ? allUsers.find(u => u._id === msg.senderId) : null;
+    senderName = userObj?.userName || userObj?.email || msg.senderId || "Unknown";
   } else {
-    senderName = "Other";
+    senderName = "Unknown";
   }
+
+  // message wrapper (for alignment)
+  const wrapper = document.createElement("div");
+  wrapper.className = `msg-wrapper ${isMe ? "me" : "other"}`;
+
+  // chat bubble
   const div = document.createElement("div");
   div.className = `chat-message ${isMe ? "me" : "other"}`;
-    div.innerHTML = `<b>${isMe ? 'Me' : msg.senderId}:</b> <span class="msg-text">${msg.content.text}</span>`;
-    div.style.textAlign = isMe ? "left" : "right";
+  div.setAttribute("data-id", msg._id);
+
+  // sender label
+  const senderEl = document.createElement("span");
+  senderEl.className = "sender";
+  senderEl.textContent = senderName;
+
+  // message content (text or image)
+  div.appendChild(senderEl);
+  if (msg.type === 'image' && msg.content?.media?.url) {
+    const img = document.createElement('img');
+    img.src = msg.content.media.url;
+    img.alt = msg.content.media.fileName || 'image';
+    img.style.maxWidth = '200px';
+    img.style.maxHeight = '200px';
+    img.className = 'msg-image';
+    div.appendChild(img);
+  } else {
+    const textEl = document.createElement("span");
+    textEl.className = "msg-text";
+    textEl.textContent = msg.content.text + (msg.isEdited ? " (edited)" : "");
+    div.appendChild(textEl);
+  }
+
+  // edit/delete (only for me)
   if (isMe) {
     const editBtn = document.createElement("button");
     editBtn.textContent = "Edit";
-    editBtn.style.marginLeft = "8px";
+    editBtn.className = "msg-btn";
     editBtn.onclick = () => {
       const newText = prompt("Edit your message:", msg.content.text);
       if (newText && newText !== msg.content.text) {
         socket.emit("message:update", { messageId: msg._id, newContent: newText });
       }
     };
+
     const delBtn = document.createElement("button");
     delBtn.textContent = "Delete";
-    delBtn.style.marginLeft = "4px";
+    delBtn.className = "msg-btn";
     delBtn.onclick = () => {
       if (confirm("Delete this message?")) {
         socket.emit("message:delete", { messageId: msg._id });
       }
     };
+
     div.appendChild(editBtn);
     div.appendChild(delBtn);
   }
-  div.setAttribute("data-id", msg._id);
-  messagesDiv.appendChild(div);
+
+  wrapper.appendChild(div);
+  messagesDiv.appendChild(wrapper);
+
+  // auto-scroll
+  messagesDiv.scrollTop = messagesDiv.scrollHeight;
 }
 
-// ----------------- GROUP CREATION -----------------
+
 const groupUserSearch = document.getElementById("group-user-search");
 const groupUserResults = document.getElementById("group-user-results");
 const groupSelectedUsersDiv = document.getElementById("group-selected-users");

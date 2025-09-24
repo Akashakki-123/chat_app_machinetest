@@ -1,6 +1,7 @@
 
+
 import { Router } from "express";
-import { createGroup, addMember, removeMember, getUserConversations, createIndividualConversation } from "../controllers/conversation.controller.js";
+import { createGroup, addMember, removeMember, getUserConversations, createIndividualConversation, deleteGroup } from "../controllers/conversation.controller.js";
 import { authenticate } from "../middlewares/auth.js";
 
 const router = Router();
@@ -16,5 +17,7 @@ router.post("/group", authenticate, createGroup);
 router.post("/group/add", authenticate, addMember);
 // Remove member from group
 router.post("/group/remove", authenticate, removeMember);
+// Delete group
+router.post("/group/delete", authenticate, deleteGroup);
 
 export default router;

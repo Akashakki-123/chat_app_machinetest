@@ -9,7 +9,7 @@ const userSockets = new Map(); // userId -> socketId
 export function initSocket(server) {
   const io = new Server(server, { cors: { origin: "*" } });
 
-  // ✅ Authentication
+  // ✅ Authentication middleware
   io.use(async (socket, next) => {
     try {
       let token = socket.handshake.auth?.token || socket.handshake.headers["authorization"];
@@ -17,7 +17,7 @@ export function initSocket(server) {
       if (token.startsWith("Bearer ")) token = token.slice(7);
 
       const decoded = verifyJwt(token);
-      const user = await User.findById(decoded.id);
+      const user = await User.findById(decoded.id || decoded._id);
       if (!user) return next(new Error("Invalid user"));
 
       socket.user = user;
@@ -31,8 +31,17 @@ export function initSocket(server) {
     const userId = socket.user._id.toString();
     userSockets.set(userId, socket.id);
 
+    console.log(`✅ User connected: ${userId}`);
+
+    // Update DB & broadcast
     await User.findByIdAndUpdate(userId, { onlineStatus: true, lastSeen: new Date() });
-    io.emit("user:status", { userId, status: "online" });
+    io.emit("user:status", {
+      userId,
+      onlineStatus: true,
+      lastSeen: new Date(),
+      userName: socket.user.userName,
+      email: socket.user.email,
+    });
 
     // ✅ Join room
     socket.on("room:join", (conversationId) => {
@@ -49,11 +58,19 @@ export function initSocket(server) {
         convo = await Conversation.create({ type: "individual", participants: [userId, receiverId] });
       }
 
+      // Support text and image messages
+      let msgContent = {};
+      if (type === 'image' && content && content.media) {
+        msgContent = { media: content.media };
+      } else {
+        msgContent = { text: typeof content === 'string' ? content : (content?.text || '') };
+      }
+
       const msg = await Message.create({
         conversationId: convo._id,
         senderId: userId,
         type,
-        content: { text: content },
+        content: msgContent,
       });
 
       convo.lastMessage = msg._id;
@@ -86,11 +103,25 @@ export function initSocket(server) {
 
     // ✅ Typing indicator
     socket.on("typing:start", ({ conversationId }) => {
-      socket.to(conversationId).emit("typing:update", { userId, isTyping: true });
+        console.log(`[TYPING START] User ${userId} (${socket.user.userName}) in conversation ${conversationId}`);
+
+      socket.to(conversationId).emit("typing:update", {
+        userId,
+        isTyping: true,
+        userName: socket.user.userName,
+        email: socket.user.email,
+      });
     });
 
     socket.on("typing:stop", ({ conversationId }) => {
-      socket.to(conversationId).emit("typing:update", { userId, isTyping: false });
+        console.log(`[TYPING STOP] User ${userId} (${socket.user.userName}) in conversation ${conversationId}`);
+
+      socket.to(conversationId).emit("typing:update", {
+        userId,
+        isTyping: false,
+        userName: socket.user.userName,
+        email: socket.user.email,
+      });
     });
 
     // ✅ Read receipt
@@ -99,10 +130,18 @@ export function initSocket(server) {
       io.to(msg.conversationId.toString()).emit("message:read_status", { messageId, userId });
     });
 
+    // ✅ Disconnect
     socket.on("disconnect", async () => {
       userSockets.delete(userId);
       await User.findByIdAndUpdate(userId, { onlineStatus: false, lastSeen: new Date() });
-      io.emit("user:status", { userId, status: "offline" });
+
+      io.emit("user:status", {
+        userId,
+        onlineStatus: false,
+        lastSeen: new Date(),
+        userName: socket.user.userName,
+        email: socket.user.email,
+      });
     });
   });
 }

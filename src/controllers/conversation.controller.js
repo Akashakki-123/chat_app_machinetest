@@ -1,3 +1,22 @@
+// Delete group (only owner or admin)
+export async function deleteGroup(req, res) {
+  try {
+    const { conversationId } = req.body;
+    const group = await Conversation.findById(conversationId);
+    if (!group) return res.status(404).json({ status: false, message: "Group not found" });
+    // Only owner or admin can delete
+    if (
+      group.groupInfo.owner?.toString() !== req.user._id.toString() &&
+      !group.groupInfo.admins.map(a => a.toString()).includes(req.user._id.toString())
+    ) {
+      return res.status(403).json({ status: false, message: "Only owner or admin can delete group" });
+    }
+    await Conversation.findByIdAndDelete(conversationId);
+    res.json({ status: true, message: "Group deleted" });
+  } catch (e) {
+    res.status(500).json({ status: false, message: e.message });
+  }
+}
 // Create or get individual conversation
 import User from "../models/user.model.js";
 export async function createIndividualConversation(req, res) {
