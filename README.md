@@ -36,6 +36,8 @@ BCRYPT_SALT_ROUNDS=10
 ### Running the App
 ```bash
 npm run dev
+
+for Frontend = http://localhost:4000/
 ```
 
 The server will run at `http://localhost:4000` by default.
